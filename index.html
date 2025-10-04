@@ -29,7 +29,7 @@
 </style>
 </head>
 <body>
-  <h1>SignalRGB 网格 / 风扇模型可视化编辑器</h1>
+  <h1>SignalRGB 设备模型可视化编辑器</h1>
   <div class="wrap">
     <div class="left">
       <label>产品名（ProductName）</label>
@@ -71,12 +71,37 @@
           <button id="btnImport">导入</button>
           <button id="btnExport">导出</button>
         </div>
-        <div class="hint">导入 SignalRGB JSON 会还原 <code>LedCoordinates</code> 坐标并填回宽高/名称（若存在）。</div>
       </div>
+
+      <div style="margin-top:10px; border-top:1px solid #eee; padding-top:10px;">
+        <label>阵列复制 (Array Duplicate)</label>
+        <div class="row">
+            <div style="flex:1;">
+                <label for="dupCount" style="font-size:11px; margin:0 0 2px;">份数</label>
+                <input id="dupCount" type="number" min="1" value="2">
+            </div>
+            <div style="flex:2; display:flex; align-items:flex-end; gap:6px;">
+                 <button id="btnDuplicateH" style="width:50%; margin:0;">横向复制</button>
+                 <button id="btnDuplicateV" style="width:50%; margin:0;" class="secondary">纵向复制</button>
+            </div>
+        </div>
+        <div class="hint">将当前灯珠作为一组，向右或向下复制指定的总份数。</div>
+      </div>
+      <label style="margin-top:10px;">设备图像（PNG）</label>
+      <input id="imgFile" type="file" accept="image/png">
+      
+      <div class="controls" style="margin-top:4px; gap:4px;">
+        <input type="checkbox" id="showImg" checked style="width:auto;">
+        <label for="showImg" style="font-size:13px; margin:0;">在画布上显示图像</label>
+        <label for="imgOpacity" style="font-size:13px; margin-left:8px;">不透明度:</label>
+        <input type="range" id="imgOpacity" min="0.1" max="1" step="0.1" value="0.5" style="width:100px;">
+      </div>
+
+      <img id="imgPreview" style="max-width:100%; margin-top:6px; display:none; border:1px solid #ccc; border-radius:4px;">
 
       <div class="meta">
         <div class="stat">灯珠数量： <span id="ledCount">0</span></div>
-        <div class="stat">当前模式：<span id="mode">点选放置 / 拖动移动</span></div>
+        <div class="stat">当前模式：<span id="mode">点选放置 / 拖动移动 / 滑动绘制</span></div>
       </div>
 
       <div style="margin-top:10px;">
@@ -85,8 +110,8 @@
       </div>
 
       <footer>
-        使用方法：生成网格 → 单击格子添加 LED → 双击击删除 → 拖动已放置 LED 可移动位置。<br>
-        生成后点击"导出"保存模型到本地（C:\Users\用户名\文档\WhirlwindFX\Components）。
+        使用方法：生成网格 → 单击格子添加 LED → 双击删除 → 拖动已放置 LED 可移动 → 按住空格子滑动可连续绘制。<br>
+        导出时保存到（C:\Users\用户名\文档\WhirlwindFX\Components）。
       </footer>
     </div>
 
@@ -103,63 +128,50 @@ let gridW = parseInt(document.getElementById('gridW').value,10);
 let gridH = parseInt(document.getElementById('gridH').value,10);
 let cellPx = parseInt(document.getElementById('cellPx').value,10);
 let offset = {x:20,y:20};
-let leds = []; // {x, y, animX, animY}
+let leds = [];
 let dragging = null;
+let drawing = false;
 let hoverCell = null;
+let imageBase64 = "";
 
-// 获取自动生成的产品名（用于导出的JSON）
+let backgroundImage = null;
+let showImageOnCanvas = true;
+let imageOpacity = 0.5;
+
+// 工具函数
 function getAutoProductName() {
   const baseName = document.getElementById('prodName').value || 'CustomFan';
   const ledCount = leds.length;
+  if (/\s*x\d+$/.test(baseName)) {
+      return `${baseName} - ${ledCount}LED`;
+  }
   return `${baseName} - ${ledCount}LED`;
 }
-
-// 获取品牌名称（如果为空则返回CompGen）
 function getBrand() {
   const brand = document.getElementById('brand').value.trim();
   return brand || 'CompGen';
 }
-
-// resize canvas
 function resizeCanvasByCell() {
   const size = Math.max(gridW * cellPx, gridH * cellPx) + offset.x*2;
   canvas.width = Math.max(size, 300);
   canvas.height = Math.max(size, 300);
 }
-
-// 构建网格
 function genGrid() {
   gridW = Math.max(1, parseInt(document.getElementById('gridW').value,10));
   gridH = Math.max(1, parseInt(document.getElementById('gridH').value,10));
   cellPx = Math.max(6, parseInt(document.getElementById('cellPx').value,10));
   resizeCanvasByCell();
-  // 保留网格内的 LED
   leds = leds.filter(p => p.x >=0 && p.x < gridW && p.y >=0 && p.y < gridH);
   drawAll();
 }
-
-// 清空 LED
-function clearLeds() { 
-  leds = []; 
-  updateUI(); 
-  drawAll(); 
-}
-
-function resetLeds() { 
-  leds = []; 
-  drawAll(); 
-  updateUI(); 
-}
-
-// 将像素坐标映射到格子
+function clearLeds() { leds = []; updateUI(); drawAll(); }
+function resetLeds() { leds = []; drawAll(); updateUI(); }
 function pointToCell(px, py) {
   const x = Math.floor((px - offset.x) / cellPx);
   const y = Math.floor((py - offset.y) / cellPx);
   if (x < 0 || x >= gridW || y < 0 || y >= gridH) return null;
   return {x, y};
 }
-
-// 找 LED 索引
 function findLedAtCell(cell) {
   if (!cell) return -1;
   for (let i=0;i<leds.length;i++){
@@ -167,21 +179,17 @@ function findLedAtCell(cell) {
   }
   return -1;
 }
-
-// 更新 UI 和 JSON 预览
 function updateUI() {
   document.getElementById('ledCount').textContent = leds.length;
   document.getElementById('jsonOut').textContent = JSON.stringify(buildJsonPreview(), null, 2);
 }
-
-// 构建 JSON（用于预览）
 function buildJsonPreview() {
   const prod = document.getElementById('prodName').value || 'CustomFan';
   const brand = getBrand();
   const coords = leds.map(p => [p.x, p.y]);
-  return {
+  const out = {
     ProductName: prod,
-    DisplayName: prod, // 显示名跟随产品名
+    DisplayName: prod,
     Brand: brand,
     Type: "custom",
     LedCount: coords.length,
@@ -191,16 +199,16 @@ function buildJsonPreview() {
     LedCoordinates: coords,
     LedNames: coords.map((_,i)=>"Led"+(i+1))
   };
+  if (imageBase64) out.Image = imageBase64;
+  return out;
 }
-
-// 构建导出用的JSON（自动添加灯珠数量）
 function buildExportJson() {
   const prod = getAutoProductName();
   const brand = getBrand();
   const coords = leds.map(p => [p.x, p.y]);
-  return {
+  const out = {
     ProductName: prod,
-    DisplayName: prod, // 显示名跟随产品名
+    DisplayName: prod,
     Brand: brand,
     Type: "custom",
     LedCount: coords.length,
@@ -210,137 +218,165 @@ function buildExportJson() {
     LedCoordinates: coords,
     LedNames: coords.map((_,i)=>"Led"+(i+1))
   };
+  if (imageBase64) out.Image = imageBase64;
+  return out;
+}
+function clearAll() {
+    clearLeds();
+    backgroundImage = null;
+    imageBase64 = "";
+    document.getElementById('imgPreview').style.display = "none";
+    document.getElementById('imgPreview').src = "";
+    document.getElementById('imgFile').value = '';
+    updateUI();
 }
 
-// 绘制 LED
+// 绘制
 function drawAll() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle = '#fff';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // 网格
+  if (backgroundImage && showImageOnCanvas) {
+    ctx.globalAlpha = imageOpacity;
+    ctx.drawImage(backgroundImage, offset.x, offset.y, gridW * cellPx, gridH * cellPx);
+    ctx.globalAlpha = 1.0;
+  }
+
   ctx.strokeStyle = '#999';
   ctx.lineWidth = 1;
   for (let i=0;i<=gridW;i++) {
     const x = offset.x + i*cellPx;
-    ctx.beginPath();
-    ctx.moveTo(x, offset.y);
-    ctx.lineTo(x, offset.y + gridH*cellPx);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, offset.y); ctx.lineTo(x, offset.y + gridH*cellPx); ctx.stroke();
   }
   for (let j=0;j<=gridH;j++) {
     const y = offset.y + j*cellPx;
-    ctx.beginPath();
-    ctx.moveTo(offset.x, y);
-    ctx.lineTo(offset.x + gridW*cellPx, y);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(offset.x, y); ctx.lineTo(offset.x + gridW*cellPx, y); ctx.stroke();
   }
-
-  // 标签
-  ctx.fillStyle = '#111';
-  ctx.font = '14px sans-serif';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = '#111'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
   for (let i=0;i<gridW;i++) ctx.fillText(i, offset.x + i*cellPx + cellPx/2, offset.y - 8);
   ctx.textAlign = 'right';
   for (let j=0;j<gridH;j++) ctx.fillText(j, offset.x - 8, offset.y + j*cellPx + cellPx/2 + 6);
-
-  // hover
   if (hoverCell) {
     ctx.fillStyle = 'rgba(47,126,252,0.12)';
     ctx.fillRect(offset.x + hoverCell.x*cellPx+1, offset.y + hoverCell.y*cellPx+1, cellPx-1, cellPx-1);
   }
-
-  // draw leds with smooth animation
   leds.forEach((pt, idx)=>{
     if (pt.animX === undefined) pt.animX = pt.x;
     if (pt.animY === undefined) pt.animY = pt.y;
-    // 平滑过渡
     pt.animX += (pt.x - pt.animX)*0.2;
     pt.animY += (pt.y - pt.animY)*0.2;
-
     const cx = offset.x + pt.animX*cellPx + cellPx/2;
     const cy = offset.y + pt.animY*cellPx + cellPx/2;
-    ctx.beginPath();
-    ctx.fillStyle = '#2f7efc';
-    ctx.arc(cx, cy, Math.max(6, cellPx/3), 0, Math.PI*2);
-    ctx.fill();
-
+    ctx.beginPath(); ctx.fillStyle = '#2f7efc';
+    ctx.arc(cx, cy, Math.max(6, cellPx/3), 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.font = `${Math.max(10, cellPx/6)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.font = `${Math.max(10, cellPx/6)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(idx, cx, cy);
-
     if (dragging === idx) {
-      ctx.strokeStyle = '#ffa500';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, Math.max(6, cellPx/3)+4, 0, Math.PI*2);
-      ctx.stroke();
+      ctx.strokeStyle = '#ffa500'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, Math.max(6, cellPx/3)+4, 0, Math.PI*2); ctx.stroke();
     }
   });
-
   requestAnimationFrame(drawAll);
 }
 
+// UPDATED FEATURE: Array Duplicate Logic (Horizontal & Vertical)
+function duplicateLeds(direction) {
+    const copies = parseInt(document.getElementById('dupCount').value, 10);
+    if (isNaN(copies) || copies <= 1) {
+        alert("份数必须是大于1的数字。");
+        return;
+    }
+    if (leds.length === 0) {
+        alert("画布上没有灯珠可以复制。");
+        return;
+    }
+
+    const baseLeds = JSON.parse(JSON.stringify(leds));
+    const baseWidth = gridW;
+    const baseHeight = gridH;
+    const newLeds = [];
+
+    for (let i = 0; i < copies; i++) {
+        const offsetX = (direction === 'horizontal') ? baseWidth * i : 0;
+        const offsetY = (direction === 'vertical') ? baseHeight * i : 0;
+        
+        baseLeds.forEach(led => {
+            newLeds.push({ x: led.x + offsetX, y: led.y + offsetY });
+        });
+    }
+
+    leds = newLeds;
+
+    if (direction === 'horizontal') {
+        gridW = baseWidth * copies;
+        document.getElementById('gridW').value = gridW;
+    } else { // vertical
+        gridH = baseHeight * copies;
+        document.getElementById('gridH').value = gridH;
+    }
+
+    let prodNameInput = document.getElementById('prodName');
+    let currentName = prodNameInput.value.replace(/\s*-\s*\d+LED\s*$/, '').replace(/\s*x\d+\s*$/, '').trim();
+    prodNameInput.value = `${currentName} x${copies}`;
+
+    resizeCanvasByCell();
+    updateUI();
+}
+
 // 鼠标事件
-canvas.addEventListener('mousemove', (e)=>{
-  const r = canvas.getBoundingClientRect();
-  const p = {x: e.clientX - r.left, y: e.clientY - r.top};
-  const cell = pointToCell(p.x, p.y);
-  hoverCell = cell;
-
-  if (dragging !== null && cell) leds[dragging] = {x: cell.x, y: cell.y};
-});
-
 canvas.addEventListener('mousedown', (e)=>{
   const r = canvas.getBoundingClientRect();
   const p = {x: e.clientX - r.left, y: e.clientY - r.top};
   const cell = pointToCell(p.x, p.y);
   if (!cell) return;
   const idx = findLedAtCell(cell);
-  if (idx >= 0) dragging = idx;
-  else { 
-    leds.push({x: cell.x, y: cell.y}); 
-    updateUI(); 
+  if (idx >= 0) {
+    dragging = idx;
+  } else {
+    leds.push({x: cell.x, y: cell.y});
+    updateUI();
+    drawing = true;
   }
 });
-
-canvas.addEventListener('mouseup', (e)=>{
-  if (dragging === null) return;
+canvas.addEventListener('mousemove', (e)=>{
   const r = canvas.getBoundingClientRect();
   const p = {x: e.clientX - r.left, y: e.clientY - r.top};
   const cell = pointToCell(p.x, p.y);
-  if (cell) {
-    const other = findLedAtCell(cell);
-    if (other >= 0 && other !== dragging) {
-      const tmp = { ...leds[other] };
-      leds[other] = { ...leds[dragging] };
-      leds[dragging] = tmp;
-    } else leds[dragging] = {x: cell.x, y: cell.y};
+  hoverCell = cell;
+  if (dragging !== null && cell) {
+    const targetIdx = findLedAtCell(cell);
+    if (targetIdx === -1) {
+        leds[dragging].x = cell.x;
+        leds[dragging].y = cell.y;
+        updateUI();
+    }
   }
-  dragging = null;
-  updateUI();
+  if (drawing && cell) {
+    const idx = findLedAtCell(cell);
+    if (idx === -1) {
+      leds.push({x: cell.x, y: cell.y});
+      updateUI();
+    }
+  }
 });
-
-canvas.addEventListener('mouseleave', ()=>{ hoverCell=null; });
+canvas.addEventListener('mouseup', ()=>{ if(dragging !== null) { updateUI(); } dragging = null; drawing = false; });
+canvas.addEventListener('mouseleave', ()=>{ hoverCell=null; drawing=false; if(dragging !== null) { updateUI(); } dragging=null; });
 canvas.addEventListener('dblclick', (e)=>{
   const r = canvas.getBoundingClientRect();
   const p = {x:e.clientX-r.left, y:e.clientY-r.top};
   const cell = pointToCell(p.x, p.y);
   const idx = findLedAtCell(cell);
-  if(idx>=0){ 
-    leds.splice(idx,1); 
-    updateUI(); 
-  }
+  if(idx>=0){ leds.splice(idx,1); updateUI(); }
 });
 
-// Buttons
+// 按钮
 document.getElementById('btnGen').addEventListener('click', ()=>genGrid());
 document.getElementById('btnReset').addEventListener('click', ()=>resetLeds());
-document.getElementById('btnClear').addEventListener('click', ()=>{
-  if(confirm('清空所有灯珠？')) clearLeds();
-});
+document.getElementById('btnClear').addEventListener('click', ()=>{ if(confirm('清空所有灯珠和图片？')) clearAll(); });
+document.getElementById('btnDuplicateH').addEventListener('click', () => duplicateLeds('horizontal'));
+document.getElementById('btnDuplicateV').addEventListener('click', () => duplicateLeds('vertical'));
 
 document.getElementById('btnImport').addEventListener('click', ()=>document.getElementById('fileIn').click());
 document.getElementById('fileIn').addEventListener('change', (ev)=>{
@@ -354,21 +390,58 @@ document.getElementById('fileIn').addEventListener('change', (ev)=>{
       if(data.ProductName) document.getElementById('prodName').value=data.ProductName;
       if(data.Brand) document.getElementById('brand').value=data.Brand;
       leds=[];
-      if(Array.isArray(data.LedCoordinates)) data.LedCoordinates.forEach(c=>{
-        if(Array.isArray(c)&&c.length>=2){ const x=parseInt(c[0],10),y=parseInt(c[1],10); if(!Number.isNaN(x)&&!Number.isNaN(y)) leds.push({x,y}); }
-      });
-      resizeCanvasByCell(); 
-      updateUI();
+      if(Array.isArray(data.LedCoordinates)) data.LedCoordinates.forEach(c=>{ if(Array.isArray(c)&&c.length>=2){ const x=parseInt(c[0],10),y=parseInt(c[1],10); if(!Number.isNaN(x)&&!Number.isNaN(y)) leds.push({x,y}); } });
+      
+      backgroundImage = null;
+      imageBase64 = "";
+      if(data.Image){
+        imageBase64 = data.Image;
+        const imageUrl = "data:image/png;base64," + data.Image;
+        document.getElementById('imgPreview').src = imageUrl;
+        document.getElementById('imgPreview').style.display = "block";
+        backgroundImage = new Image();
+        backgroundImage.src = imageUrl;
+      } else {
+        document.getElementById('imgPreview').style.display = "none";
+      }
+
+      resizeCanvasByCell(); updateUI();
     }catch(err){ alert('导入 JSON 失败：'+err); }
   };
   reader.readAsText(f); ev.target.value='';
 });
 
 document.getElementById('btnExport').addEventListener('click', ()=>{
-  const json = buildExportJson(); // 使用专门为导出构建的JSON
+  const json = buildExportJson();
   const blob = new Blob([JSON.stringify(json,null,2)],{type:'application/json'});
   const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download = (json.ProductName||'model')+'.json'; a.click();
+});
+
+document.getElementById('imgFile').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const imageUrl = ev.target.result;
+    imageBase64 = imageUrl.replace(/^data:image\/png;base64,/, "");
+    document.getElementById('imgPreview').src = imageUrl;
+    document.getElementById('imgPreview').style.display = "block";
+    
+    backgroundImage = new Image();
+    backgroundImage.src = imageUrl;
+
+    alert("图片已加载，将在导出时写入 JSON");
+    updateUI();
+  };
+  reader.readAsDataURL(f);
+});
+
+document.getElementById('showImg').addEventListener('change', (e) => {
+  showImageOnCanvas = e.target.checked;
+});
+document.getElementById('imgOpacity').addEventListener('input', (e) => {
+  imageOpacity = parseFloat(e.target.value);
 });
 
 // init
