@@ -1,0 +1,97 @@
+name: Build SignalRGB Editor EXE
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        
+    - name: Create package.json
+      run: |
+        echo '{
+          "name": "signalrgb-editor",
+          "version": "1.0.0",
+          "description": "SignalRGB设备模型编辑器",
+          "main": "main.js",
+          "scripts": {
+            "build": "electron-builder"
+          },
+          "author": "SignalRGB",
+          "license": "MIT",
+          "devDependencies": {
+            "electron": "^22.0.0",
+            "electron-builder": "^24.0.0"
+          },
+          "build": {
+            "appId": "com.signalrgb.editor",
+            "productName": "SignalRGB编辑器",
+            "directories": {
+              "output": "dist"
+            },
+            "files": [
+              "main.js",
+              "index.html"
+            ],
+            "win": {
+              "target": "nsis"
+            }
+          }
+        }' > package.json
+        
+    - name: Create main.js
+      run: |
+        echo 'const { app, BrowserWindow } = require("electron");
+        const path = require("path");
+
+        function createWindow() {
+          const mainWindow = new BrowserWindow({
+            width: 1600,
+            height: 1000,
+            webPreferences: {
+              nodeIntegration: false,
+              contextIsolation: true
+            },
+            title: "SignalRGB设备模型编辑器"
+          });
+
+          mainWindow.loadFile("index.html");
+        }
+
+        app.whenReady().then(createWindow);
+
+        app.on("window-all-closed", () => {
+          if (process.platform !== "darwin") {
+            app.quit();
+          }
+        });' > main.js
+        
+    - name: Install dependencies
+      run: npm install
+      
+    - name: Build EXE
+      run: npm run build
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: SignalRGB-Editor
+        path: dist/*.exe
+        
+    - name: Create Release
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/*.exe
