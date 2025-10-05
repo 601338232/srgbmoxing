@@ -1,8 +1,6 @@
-name: Build SignalRGB Editor EXE
+name: Build SignalRGB Editor
 
 on:
-  push:
-    branches: [ main ]
   release:
     types: [created]
 
@@ -11,26 +9,23 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
+    - uses: actions/checkout@v4
+    
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
         
-    - name: Create package.json
+    - name: Create app files
       run: |
+        # 创建 package.json
         echo '{
           "name": "signalrgb-editor",
           "version": "1.0.0",
-          "description": "SignalRGB设备模型编辑器",
           "main": "main.js",
           "scripts": {
             "build": "electron-builder"
           },
-          "author": "SignalRGB",
-          "license": "MIT",
           "devDependencies": {
             "electron": "^28.0.0",
             "electron-builder": "^24.0.0"
@@ -41,23 +36,17 @@ jobs:
             "directories": {
               "output": "dist"
             },
-            "files": [
-              "main.js",
-              "index.html"
-            ],
+            "files": ["main.js", "index.html"],
             "win": {
               "target": "nsis"
             }
           }
         }' > package.json
         
-    - name: Create main.js
-      run: |
+        # 创建 main.js
         echo 'const { app, BrowserWindow } = require("electron");
-        const path = require("path");
-
         function createWindow() {
-          const mainWindow = new BrowserWindow({
+          const win = new BrowserWindow({
             width: 1600,
             height: 1000,
             webPreferences: {
@@ -66,38 +55,19 @@ jobs:
             },
             title: "SignalRGB设备模型编辑器"
           });
-
-          mainWindow.loadFile("index.html");
+          win.loadFile("index.html");
         }
-
         app.whenReady().then(createWindow);
-
         app.on("window-all-closed", () => {
-          if (process.platform !== "darwin") {
-            app.quit();
-          }
+          if (process.platform !== "darwin") app.quit();
         });' > main.js
-        
-    - name: Generate package-lock.json
-      run: npm install --package-lock-only
-      
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Build EXE
-      run: npm run build
-      
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+    
+    - name: Install and build
+      run: |
+        npm install
+        npm run build
+    
+    - uses: actions/upload-artifact@v4
       with:
         name: SignalRGB-Editor
         path: dist/
-        retention-days: 30
-        
-    - name: Create Release
-      if: github.event_name == 'release'
-      uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: dist/*.exe
