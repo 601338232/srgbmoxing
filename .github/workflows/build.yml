@@ -12,12 +12,13 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
+        cache: 'npm'
         
     - name: Create package.json
       run: |
@@ -32,7 +33,7 @@ jobs:
           "author": "SignalRGB",
           "license": "MIT",
           "devDependencies": {
-            "electron": "^22.0.0",
+            "electron": "^28.0.0",
             "electron-builder": "^24.0.0"
           },
           "build": {
@@ -85,13 +86,16 @@ jobs:
       run: npm run build
       
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: SignalRGB-Editor
-        path: dist/*.exe
+        path: dist/
+        retention-days: 30
         
     - name: Create Release
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         files: dist/*.exe
