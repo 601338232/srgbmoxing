@@ -1,6 +1,8 @@
 name: Build SignalRGB Editor
 
 on:
+  push:
+    branches: [ main ]
   release:
     types: [created]
 
@@ -9,65 +11,130 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v4
-    
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '18'  # 使用更稳定的版本
+        cache: 'npm'
         
-    - name: Create app files
+    - name: Debug - List files
+      run: dir
+      
+    - name: Create Electron app structure
       run: |
         # 创建 package.json
-        echo '{
+        @echo {
           "name": "signalrgb-editor",
           "version": "1.0.0",
+          "description": "SignalRGB Device Model Editor",
           "main": "main.js",
           "scripts": {
-            "build": "electron-builder"
+            "start": "electron .",
+            "build": "electron-builder --win"
           },
+          "author": "SignalRGB",
+          "license": "MIT",
           "devDependencies": {
-            "electron": "^28.0.0",
+            "electron": "^23.0.0",
             "electron-builder": "^24.0.0"
           },
           "build": {
             "appId": "com.signalrgb.editor",
-            "productName": "SignalRGB编辑器",
+            "productName": "SignalRGB Editor",
             "directories": {
               "output": "dist"
             },
-            "files": ["main.js", "index.html"],
+            "files": [
+              "main.js",
+              "index.html",
+              "package.json"
+            ],
             "win": {
-              "target": "nsis"
+              "target": "nsis",
+              "icon": "icon.ico"
             }
           }
-        }' > package.json
+        } > package.json
         
         # 创建 main.js
-        echo 'const { app, BrowserWindow } = require("electron");
+        @echo const { app, BrowserWindow } = require('electron');
+        const path = require('path');
+        
         function createWindow() {
-          const win = new BrowserWindow({
+          const mainWindow = new BrowserWindow({
             width: 1600,
             height: 1000,
             webPreferences: {
               nodeIntegration: false,
-              contextIsolation: true
+              contextIsolation: true,
+              enableRemoteModule: false
             },
-            title: "SignalRGB设备模型编辑器"
+            icon: path.join(__dirname, 'icon.png'),
+            title: 'SignalRGB Device Model Editor'
           });
-          win.loadFile("index.html");
+        
+          mainWindow.loadFile('index.html');
         }
+        
         app.whenReady().then(createWindow);
-        app.on("window-all-closed", () => {
-          if (process.platform !== "darwin") app.quit();
-        });' > main.js
-    
-    - name: Install and build
+        
+        app.on('window-all-closed', () => {
+          if (process.platform !== 'darwin') {
+            app.quit();
+          }
+        });
+        
+        app.on('activate', () => {
+          if (BrowserWindow.getAllWindows().length === 0) {
+            createWindow();
+          }
+        }); > main.js
+        
+    - name: Install dependencies
       run: |
         npm install
-        npm run build
-    
-    - uses: actions/upload-artifact@v4
+        echo "Dependencies installed successfully"
+        
+    - name: Debug - Check files
+      run: |
+        echo "Current directory:"
+        pwd
+        echo "Files in directory:"
+        ls -la
+        echo "package.json content:"
+        cat package.json
+        echo "main.js exists:"
+        test -f main.js && echo "YES" || echo "NO"
+        echo "index.html exists:"
+        test -f index.html && echo "YES" || echo "NO"
+        
+    - name: Build application
+      run: |
+        echo "Starting build process..."
+        npm run build || echo "Build failed with exit code: $?"
+        echo "Build process completed"
+        
+    - name: Check build output
+      run: |
+        echo "Checking dist directory..."
+        if [ -d "dist" ]; then
+          echo "dist directory exists, contents:"
+          ls -la dist/
+        else
+          echo "dist directory does not exist"
+          echo "Current directory contents:"
+          ls -la
+        fi
+        
+    - name: Upload artifacts
+      if: success()
+      uses: actions/upload-artifact@v4
       with:
-        name: SignalRGB-Editor
-        path: dist/
+        name: SignalRGB-Editor-Build
+        path: |
+          dist/
+          *.exe
+        retention-days: 7
