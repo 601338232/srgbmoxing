@@ -53,11 +53,11 @@
 
       <div class="row" style="margin-top:8px;">
         <div style="flex:1;">
-          <label>格子像素大小（px，可调整）</label>
-          <input id="cellPx" type="number" min="6" value="32">
+          <label for="cellPx">格子像素大小（px，可调整）：<span id="cellPxValue">32</span></label>
+          <input id="cellPx" type="range" min="6" max="64" step="2" value="32">
         </div>
       </div>
-
+      
       <div class="controls">
         <button id="btnGen">生成网格</button>
         <button id="btnReset" class="secondary">重置灯珠</button>
@@ -89,6 +89,21 @@
       </div>
       <label style="margin-top:10px;">设备图像（PNG）</label>
       <input id="imgFile" type="file" accept="image/png">
+      
+      <div style="display:flex; gap:8px; margin-top:8px;">
+          <div style="flex:1;">
+              <label for="imgOffsetX" style="font-size:13px; margin:0 0 2px;">图像 X 偏移 (px)</label>
+              <input id="imgOffsetX" type="number" value="0">
+          </div>
+          <div style="flex:1;">
+              <label for="imgOffsetY" style="font-size:13px; margin:0 0 2px;">图像 Y 偏移 (px)</label>
+              <input id="imgOffsetY" type="number" value="0">
+          </div>
+      </div>
+      <div style="flex:1; margin-top:8px;">
+          <label for="imgScale" style="font-size:13px; margin:0 0 2px;">图像缩放比例（Scale）</label>
+          <input id="imgScale" type="number" min="0.1" step="0.1" value="1.0">
+      </div>
       
       <div class="controls" style="margin-top:4px; gap:4px;">
         <input type="checkbox" id="showImg" checked style="width:auto;">
@@ -126,8 +141,9 @@ const ctx = canvas.getContext('2d');
 
 let gridW = parseInt(document.getElementById('gridW').value,10);
 let gridH = parseInt(document.getElementById('gridH').value,10);
-let cellPx = parseInt(document.getElementById('cellPx').value,10);
-let offset = {x:20,y:20};
+let cellPx = 32; // **修改点 3：cellPx 初始值设置为默认值，实际值从 init 块中读取**
+// **修改点 4：增大偏移量，避免坐标数字被遮挡**
+let offset = {x:40,y:40};
 let leds = [];
 let dragging = null;
 let drawing = false;
@@ -159,7 +175,8 @@ function resizeCanvasByCell() {
 function genGrid() {
   gridW = Math.max(1, parseInt(document.getElementById('gridW').value,10));
   gridH = Math.max(1, parseInt(document.getElementById('gridH').value,10));
-  cellPx = Math.max(6, parseInt(document.getElementById('cellPx').value,10));
+  // **修改点 5：genGrid 中不再从 DOM 读取 cellPx，仅做最小值校验**
+  cellPx = Math.max(6, cellPx); 
   resizeCanvasByCell();
   leds = leds.filter(p => p.x >=0 && p.x < gridW && p.y >=0 && p.y < gridH);
   drawAll();
@@ -237,9 +254,25 @@ function drawAll() {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
+  // **修改点 6：应用图像偏移和缩放**
   if (backgroundImage && showImageOnCanvas) {
+    const imgOffsetX = parseFloat(document.getElementById('imgOffsetX')?.value) || 0;
+    const imgOffsetY = parseFloat(document.getElementById('imgOffsetY')?.value) || 0;
+    const imgScale = parseFloat(document.getElementById('imgScale')?.value) || 1.0; 
+
+    const baseWidth = gridW * cellPx;
+    const baseHeight = gridH * cellPx;
+    const drawWidth = baseWidth * imgScale;
+    const drawHeight = baseHeight * imgScale;
+    
     ctx.globalAlpha = imageOpacity;
-    ctx.drawImage(backgroundImage, offset.x, offset.y, gridW * cellPx, gridH * cellPx);
+    ctx.drawImage(
+        backgroundImage, 
+        offset.x + imgOffsetX, 
+        offset.y + imgOffsetY, 
+        drawWidth, 
+        drawHeight
+    );
     ctx.globalAlpha = 1.0;
   }
 
@@ -444,7 +477,33 @@ document.getElementById('imgOpacity').addEventListener('input', (e) => {
   imageOpacity = parseFloat(e.target.value);
 });
 
+// **修改点 7：新增图像位置和缩放的实时监听**
+document.getElementById('imgOffsetX').addEventListener('input', drawAll);
+document.getElementById('imgOffsetY').addEventListener('input', drawAll);
+document.getElementById('imgScale').addEventListener('input', drawAll);
+
+
+// **修改点 8：新增 cellPx 滑动条的事件监听（优化卡顿/不灵敏问题）**
+const cellPxInput = document.getElementById('cellPx');
+const cellPxDisplay = document.getElementById('cellPxValue');
+
+// 使用 'change' 触发 genGrid 避免卡顿（只在滑动停止时更新网格）
+cellPxInput.addEventListener('change', (e) => {
+    cellPx = parseInt(e.target.value, 10);
+    genGrid(); 
+});
+
+// 使用 'input' 仅更新显示值，保持灵敏度
+cellPxInput.addEventListener('input', (e) => {
+    if (cellPxDisplay) cellPxDisplay.textContent = e.target.value;
+});
+
+
 // init
+// **修改点 9：初始化时同步 cellPx 的值**
+cellPx = parseInt(cellPxInput.value, 10);
+if (cellPxDisplay) cellPxDisplay.textContent = cellPx;
+
 resizeCanvasByCell();
 drawAll();
 updateUI();
